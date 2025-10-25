@@ -13,6 +13,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -28,15 +29,21 @@ public class PedidoService {
     @Autowired
     private PedidoRepository pedidoRepository;
 
-    // Implementação de pilha baseada em array (topo/elementos)
-    private final PedidoResponseDTO[] elementos = new PedidoResponseDTO[100];
-    private int topo = -1; // -1 indica pilha vazia
-    // capacidade derivada do tamanho do array, fácil de alterar no futuro
-    private final int capacidade = elementos.length;
+    private PedidoResponseDTO[] filaPedidos;
+    private int topo;
+    private int capacidade;
+
+    /**
+     * Construtor que inicializa a fila baseada em array
+     */
+    public PedidoService() {
+        this.capacidade = 100; // Capacidade inicial da fila
+        this.filaPedidos = new PedidoResponseDTO[capacidade];
+        this.topo = -1; // -1 indica que a fila está vazia
+    }
 
     /**
      * Cria um novo pedido no sistema
-     * 
      * @param request Dados do pedido a ser criado
      * @return DTO com os dados do pedido criado
      */
@@ -58,15 +65,14 @@ public class PedidoService {
         // Converter entidade para DTO de resposta
         PedidoResponseDTO pedidoResponse = convertToResponseDTO(pedidoSalvo);
 
-    // Adicionar pedido à pilha (array-backed)
-    push(pedidoResponse);
+        // Adicionar pedido à fila (Array)
+        adicionarPedidoNaFila(pedidoResponse);
 
         return pedidoResponse;
     }
 
     /**
      * Lista todos os pedidos do sistema ordenados por data (mais recentes primeiro)
-     * 
      * @return Lista de DTOs com os dados dos pedidos
      */
     @Transactional(readOnly = true)
@@ -84,7 +90,6 @@ public class PedidoService {
 
     /**
      * Busca um pedido específico pelo seu ID
-     * 
      * @param id ID do pedido a ser buscado
      * @return DTO com os dados do pedido encontrado
      * @throws PedidoNotFoundException se o pedido não for encontrado
@@ -106,7 +111,6 @@ public class PedidoService {
 
     /**
      * Valida os dados do pedido aplicando regras de negócio adicionais
-     * 
      * @param request DTO com os dados do pedido a serem validados
      */
     private void validarDadosPedido(PedidoRequestDTO request) {
@@ -128,7 +132,6 @@ public class PedidoService {
 
     /**
      * Converte um DTO de request para uma entidade Pedido
-     * 
      * @param request DTO com os dados do pedido
      * @return Entidade Pedido
      */
@@ -144,7 +147,6 @@ public class PedidoService {
 
     /**
      * Converte uma entidade Pedido para um DTO de response
-     * 
      * @param pedido Entidade Pedido
      * @return DTO de response com os dados do pedido
      */
@@ -159,65 +161,54 @@ public class PedidoService {
     }
 
     /**
-     * Verifica se a pilha atingiu a capacidade máxima configurada.
-     *
-     * @return true se a pilha estiver cheia, false caso contrário
+     * Adiciona um pedido à fila (Array)
+     * @param pedido DTO do pedido a ser adicionado à fila
      */
-    public boolean isFull() {
-        return topo == capacidade - 1;
-    }
-
-    /**
-     * Empilha (push) um pedido na estrutura baseada em array.
-     * Esta implementação segue o modelo anterior (topo/elementos) e não
-     * faz uso de métodos auxiliares já existentes.
-     *
-     * @param pedido DTO do pedido a ser adicionado
-     */
-    public void push(PedidoResponseDTO pedido) {
-        if (isFull()) {
-            throw new RuntimeException("Pilha cheia! Não é possível adicionar mais pedidos.");
+    private void adicionarPedidoNaFila(PedidoResponseDTO pedido) {
+        if (isFilaCheia()) {
+            // Se a fila estiver cheia, dobrar a capacidade
+            aumentarCapacidade();
         }
-        elementos[++topo] = pedido; // incrementa topo e coloca o pedido
-        log.info("Adicionado pedido ID {} na pilha (Tamanho: {})", pedido.getId(), topo + 1);
+
+        filaPedidos[++topo] = pedido;
+        log.info("Pedido ID {} adicionado à fila. Total de pedidos na fila: {}",
+                pedido.getId(), getTamanhoDaFila());
     }
 
     /**
      * Remove e retorna o último pedido da fila (LIFO - Last In, First Out)
-     * 
      * @return DTO do pedido removido da fila, ou null se a fila estiver vazia
      */
     public PedidoResponseDTO processarProximoPedidoDaFila() {
-        if (topo == -1) {
+        if (isFilaVazia()) {
             log.info("Fila de pedidos está vazia");
             return null;
         }
 
-        PedidoResponseDTO pedido = elementos[topo--];
-        log.info("Pedido ID {} removido da pilha. Pedidos restantes na pilha: {}",
-                pedido.getId(), topo + 1);
+        PedidoResponseDTO pedido = filaPedidos[topo];
+        filaPedidos[topo--] = null; // Remove a referência para ajudar o garbage collector
+        log.info("Pedido ID {} removido da fila. Pedidos restantes na fila: {}",
+                pedido.getId(), getTamanhoDaFila());
         return pedido;
     }
 
     /**
      * Retorna o próximo pedido da fila sem removê-lo
-     * 
      * @return DTO do próximo pedido da fila, ou null se a fila estiver vazia
      */
     public PedidoResponseDTO visualizarProximoPedidoDaFila() {
-        if (topo == -1) {
+        if (isFilaVazia()) {
             log.info("Fila de pedidos está vazia");
             return null;
         }
 
-        PedidoResponseDTO pedido = elementos[topo];
-        log.info("Próximo pedido da pilha: ID {}", pedido.getId());
+        PedidoResponseDTO pedido = filaPedidos[topo];
+        log.info("Próximo pedido da fila: ID {}", pedido.getId());
         return pedido;
     }
 
     /**
      * Retorna o tamanho atual da fila de pedidos
-     * 
      * @return Número de pedidos na fila
      */
     public int getTamanhoDaFila() {
@@ -226,7 +217,6 @@ public class PedidoService {
 
     /**
      * Verifica se a fila de pedidos está vazia
-     * 
      * @return true se a fila estiver vazia, false caso contrário
      */
     public boolean isFilaVazia() {
@@ -234,18 +224,61 @@ public class PedidoService {
     }
 
     /**
+     * Verifica se a fila de pedidos está cheia
+     * @return true se a fila estiver cheia, false caso contrário
+     */
+    public boolean isFilaCheia() {
+        return topo == capacidade - 1;
+    }
+
+    /**
+     * Aumenta a capacidade da fila quando ela estiver cheia
+     */
+    private void aumentarCapacidade() {
+        int novaCapacidade = capacidade * 2;
+        PedidoResponseDTO[] novaFila = new PedidoResponseDTO[novaCapacidade];
+
+        // Copia os elementos da fila antiga para a nova
+        System.arraycopy(filaPedidos, 0, novaFila, 0, capacidade);
+
+        filaPedidos = novaFila;
+        capacidade = novaCapacidade;
+
+        log.info("Capacidade da fila aumentada para: {}", capacidade);
+    }
+
+    /**
      * Obtém todas as mensagens (pedidos) que estão atualmente na fila
-     * 
      * @return Lista com todos os pedidos da fila (do topo para a base)
      */
     public List<PedidoResponseDTO> obterTodasAsMensagens() {
-        log.info("Obtendo todas as mensagens da pilha. Total: {}", topo + 1);
+        log.info("Obtendo todas as mensagens da fila. Total: {}", getTamanhoDaFila());
 
-        List<PedidoResponseDTO> copia = new ArrayList<>();
-        // do topo (último adicionado) para a base (primeiro adicionado)
+        List<PedidoResponseDTO> mensagens = new ArrayList<>();
+
+        // Adiciona os elementos do array na lista, do topo para a base
         for (int i = topo; i >= 0; i--) {
-            copia.add(elementos[i]);
+            mensagens.add(filaPedidos[i]);
         }
-        return copia;
+
+        return mensagens;
+    }
+
+    /**
+     * Limpa toda a fila de pedidos
+     */
+    public void limparFila() {
+        // Limpa as referências para ajudar o garbage collector
+        Arrays.fill(filaPedidos, 0, topo + 1, null);
+        topo = -1;
+        log.info("Fila de pedidos limpa");
+    }
+
+    /**
+     * Retorna a capacidade máxima atual da fila
+     * @return Capacidade máxima da fila
+     */
+    public int getCapacidadeFila() {
+        return capacidade;
     }
 }
